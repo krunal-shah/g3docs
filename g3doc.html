@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Markdown Docs + Live Placeholders</title>
+
+<!-- Markdown → HTML converter -->
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+<style>
+/* ========== Base look & feel ========== */
+:root{
+  --accent:      #0077cc;
+  --accent-soft: #e7f1fa;
+  --text:        #111;
+  --text-muted:  #666;
+  --code-bg:     #f6f8fa;
+  --border:      #d0d7de;
+}
+
+html{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;font-size:16px;}
+body{max-width:60rem;margin:2.5rem auto;padding:0 1rem;line-height:1.4;color:var(--text);}
+
+/* Headings & spacing */
+h1{font-size:2rem;margin:0 0 1rem;color:var(--accent);}
+h2,h3{margin:.8rem 0 .5rem}
+p{margin:.25rem 0}
+pre{margin:.25rem 0}
+
+/* Placeholders & inputs */
+label,input[data-field]{vertical-align:middle}
+#content p:has(input[data-field]){
+  display:flex;
+  align-items:center;
+  gap:.4rem;
+}
+input[data-field]{
+  margin-left:.4rem;
+  padding:.25rem .5rem;
+  font-size:.95rem;
+  border:1px solid var(--border);
+  border-radius:4px;
+  width:18ch;              /* ≈ 18 characters */
+  flex:1 1 20rem;          /* stretch nicely on wide screens */
+  min-width:12rem;
+}
+.placeholder{font-weight:500;color:var(--accent)}
+
+/* Code block wrapper + copy button */
+.code-block-wrapper{
+  position:relative;
+  margin:.6rem 0;
+  background:var(--code-bg);
+  border:1px solid var(--border);
+  border-radius:6px;
+}
+.code-block-wrapper pre{
+  padding:1rem 1rem .9rem;
+  overflow:auto;
+  background:none;
+}
+.copy-code-button{
+  position:absolute;
+  top:.35rem; right:.45rem;
+  padding:.25rem .55rem;
+  font-size:.75rem;
+  background:var(--accent-soft);
+  color:var(--accent);
+  border:1px solid var(--border);
+  border-radius:4px;
+  cursor:pointer;
+  opacity:0;
+  transition:opacity .15s,background-color .15s;
+}
+.code-block-wrapper:hover .copy-code-button{opacity:1}
+.copy-code-button:hover{background:#dbebf8}
+.copy-code-button:active{background:#cde1f3}
+.copy-code-button.copied{
+  background:#c6f6d5;
+  color:#1e602f;
+  border-color:#a7e5b9;
+}
+
+/* ========== Sticky navbar ========== */
+#navbar{
+  position:sticky; top:0;
+  display:flex; gap:.8rem;
+  padding:.4rem 1rem;
+  margin:-2rem -1rem 1.5rem;      /* pulls into body’s top margin */
+  background:#fff;
+  border-bottom:1px solid var(--border);
+  z-index:10;
+}
+#navbar a{
+  font-size:.9rem;
+  font-weight:500;
+  color:var(--text-muted);
+  text-decoration:none;
+  padding:.3rem .25rem;
+  border-bottom:2px solid transparent;
+}
+#navbar a:hover{color:var(--accent)}
+#navbar a.active{
+  color:var(--accent);
+  border-color:var(--accent);
+}
+</style>
+</head>
+
+<body>
+
+<!-- 🔹 Slim navigation bar.  Add / rename links to match your Markdown files -->
+<nav id="navbar">
+  <a href="#" data-md="doc.md"  class="active">Basics</a>
+  <a href="#" data-md="cli.md">CLI Cheats</a>
+  <a href="#" data-md="faq.md">FAQ</a>
+</nav>
+
+<div id="content"></div>
+
+<script>
+/* ---------- Placeholder helpers ---------- */
+function swapPlaceholders(root=document.getElementById('content')){
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const regex = /{{\s*([\w-]+)\s*}}/g;
+  const replacements = [];
+  while (walker.nextNode()) {
+    const node = walker.currentNode;
+    if (regex.test(node.nodeValue)) {
+      const frag = document.createElement('span');
+      frag.innerHTML = node.nodeValue.replace(regex,
+        (_, fld) => `<span class="placeholder" data-field="${fld}"></span>`);
+      replacements.push([node, frag]);
+    }
+  }
+  replacements.forEach(([n, f]) => n.replaceWith(...f.childNodes));
+}
+function refresh(field, value){
+  document.querySelectorAll(`.placeholder[data-field="${field}"]`)
+          .forEach(el => el.textContent = value);
+}
+
+/* ---------- Copy‑button enhancer ---------- */
+function makeCodeBlocksCopyable(container=document.getElementById('content')){
+  container.querySelectorAll('pre').forEach(pre=>{
+    const codeElement = pre.querySelector('code');
+    if(!codeElement) return;
+
+    const wrapper = document.createElement('div');
+    wrapper.classList.add('code-block-wrapper');
+
+    const button = document.createElement('button');
+    button.classList.add('copy-code-button');
+    button.textContent = 'Copy';
+
+    pre.parentNode.insertBefore(wrapper, pre);
+    wrapper.appendChild(pre);
+    wrapper.insertBefore(button, pre);
+
+    button.addEventListener('click', async ()=>{
+      try{
+        await navigator.clipboard.writeText(codeElement.innerText);
+        button.textContent='Copied!';
+        button.classList.add('copied'); button.disabled=true;
+        setTimeout(()=>{
+          button.textContent='Copy';
+          button.classList.remove('copied'); button.disabled=false;
+        },2000);
+      }catch(err){
+        console.error('Copy failed:',err);
+        button.textContent='Error';
+        setTimeout(()=>button.textContent='Copy',2000);
+      }
+    });
+  });
+}
+
+/* ---------- Markdown loader ---------- */
+async function loadDoc(mdFile){
+  try{
+    const res = await fetch(mdFile);
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+    const html = marked.parse(await res.text());
+
+    const container = document.getElementById('content');
+    container.innerHTML = html;
+
+    swapPlaceholders(container);
+    makeCodeBlocksCopyable(container);
+    bindInputs(container);
+  }catch(err){
+    console.error(err);
+    content.innerHTML = `<p style="color:red;">Unable to load <code>${mdFile}</code>: ${err}</p>`;
+  }
+}
+
+/* Wire inputs → placeholders */
+function bindInputs(container=document.getElementById('content')){
+  container.querySelectorAll('input[data-field]').forEach(input=>{
+    refresh(input.dataset.field, input.value); // initial paint
+    input.addEventListener('input', e=>{
+      refresh(e.target.dataset.field, e.target.value);
+    });
+  });
+}
+
+/* ---------- Navbar routing ---------- */
+document.addEventListener('DOMContentLoaded', ()=>{
+  const navbar = document.getElementById('navbar');
+
+  // Load the first (active) link by default
+  const first = navbar.querySelector('a.active') || navbar.querySelector('a[data-md]');
+  if(first) loadDoc(first.dataset.md);
+
+  // Handle clicks
+  navbar.addEventListener('click', e=>{
+    const link = e.target.closest('a[data-md]');
+    if(!link) return;
+    e.preventDefault();
+
+    navbar.querySelectorAll('a').forEach(a=>a.classList.toggle('active', a===link));
+    loadDoc(link.dataset.md);
+  });
+});
+</script>
+</body>
+</html>
